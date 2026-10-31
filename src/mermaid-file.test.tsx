@@ -4,6 +4,8 @@ import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { REFRESH_MS } from "./mermaid-file";
 
+const drawn = (frame: HTMLIFrameElement | null | undefined) => frame?.contentDocument?.documentElement.outerHTML ?? "";
+
 const FLOWCHART = "flowchart LR\n  A[Start] --> B[Done]";
 const SEQUENCE = "sequenceDiagram\n  A->>B: hi";
 
@@ -83,7 +85,7 @@ describe("mermaid file opener", () => {
     const { slot, reads, frame } = openFile();
     await settle();
     expect(reads).toEqual([{ hostId: "host_1", path: "/work/repo/docs/flow.mmd", rootPath: "/work/repo" }]);
-    expect(frame()?.getAttribute("srcdoc")).toContain("pele-flowchart");
+    expect(drawn(frame())).toContain("pele-flowchart");
     expect(frame()?.getAttribute("sandbox")).toBe("allow-same-origin");
     expect(within(slot.container).getByRole("heading").textContent).toBe("flow.mmd");
     const controls = within(slot.container).getByRole("group", { name: "Viewer controls" });
@@ -102,7 +104,7 @@ describe("mermaid file opener", () => {
     });
     await settle();
     expect(reads[0]).toEqual({ hostId: "host_2", path: "/storage/thr_1/diagrams/seq.mermaid", rootPath: "/storage/thr_1/" });
-    expect(frame()?.getAttribute("srcdoc")).toContain("pele-sequence");
+    expect(drawn(frame())).toContain("pele-sequence");
   });
 
   test("reads host files at their absolute path", async () => {
@@ -119,7 +121,7 @@ describe("mermaid file opener", () => {
   test("decodes base64 file content as UTF-8", async () => {
     const { frame } = openFile({ encoding: "base64", files: { "/work/repo/docs/flow.mmd": "flowchart LR\n  A[Café ✓] --> B" } });
     await settle();
-    expect(frame()?.getAttribute("srcdoc")).toContain("Café ✓");
+    expect(drawn(frame())).toContain("Café ✓");
   });
 
   test("falls back to bb's preview when the file does not parse or cannot be read", async () => {
@@ -152,10 +154,10 @@ describe("mermaid file opener", () => {
     vi.useFakeTimers();
     const { slot, reads, files, frame } = openFile();
     await settle();
-    expect(frame()?.getAttribute("srcdoc")).toContain("pele-flowchart");
+    expect(drawn(frame())).toContain("pele-flowchart");
     files["/work/repo/docs/flow.mmd"] = SEQUENCE;
     await act(async () => void (await vi.advanceTimersByTimeAsync(REFRESH_MS)));
-    expect(frame()?.getAttribute("srcdoc")).toContain("pele-sequence");
+    expect(drawn(frame())).toContain("pele-sequence");
     const count = reads.length;
     slot.lifecycle.unmount();
     await act(async () => void (await vi.advanceTimersByTimeAsync(REFRESH_MS * 3)));
@@ -168,7 +170,7 @@ describe("mermaid file opener", () => {
     await settle();
     files["/work/repo/docs/flow.mmd"] = new Error("gone");
     await act(async () => void (await vi.advanceTimersByTimeAsync(REFRESH_MS)));
-    expect(frame()?.getAttribute("srcdoc")).toContain("pele-flowchart");
+    expect(drawn(frame())).toContain("pele-flowchart");
     expect(original()).toBeNull();
   });
 });

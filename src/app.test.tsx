@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { frameSize } from "./frame";
 import { fitView, READABLE_SCALE, startView } from "./view";
 
+const drawn = (frame: HTMLIFrameElement | null | undefined) => frame?.contentDocument?.documentElement.outerHTML ?? "";
+
 const FLOWCHART = "flowchart LR\n  A[Start] --> B{Ok?}\n  B -->|yes| C[Done]";
 const BROKEN = "flowchart LR\n  A --> ";
 const LINKED = `${FLOWCHART}\n  click A "https://example.com/phish"`;
@@ -100,7 +102,7 @@ describe("fence lifecycle", () => {
   test("a closed fence renders the diagram in a frame", () => {
     const { frame, original, view } = mount(fence(FLOWCHART, "closed"));
     expect(view()).toBe("diagram");
-    expect(frame()?.getAttribute("srcdoc")).toContain('<svg xmlns="http://www.w3.org/2000/svg" class="pele pele-flowchart"');
+    expect(drawn(frame())).toContain('<svg xmlns="http://www.w3.org/2000/svg" class="pele pele-flowchart"');
     expect(frame()?.getAttribute("title")).toBe("Mermaid flowchart diagram");
     expect(original()).toBeNull();
   });
@@ -110,13 +112,13 @@ describe("fence lifecycle", () => {
     expect(frame()).toBeNull();
     slot.lifecycle.rerender(<registration.component {...fence(FLOWCHART, "closed")} />);
     expect(view()).toBe("diagram");
-    expect(frame()?.getAttribute("srcdoc")).toContain("pele-flowchart");
+    expect(drawn(frame())).toContain("pele-flowchart");
   });
 
   test("a closed fence re-renders when its code changes", () => {
     const { slot, frame } = mount(fence(FLOWCHART, "closed"));
     slot.lifecycle.rerender(<registration.component {...fence("sequenceDiagram\n  A->>B: hi", "closed")} />);
-    expect(frame()?.getAttribute("srcdoc")).toContain("pele-sequence");
+    expect(drawn(frame())).toContain("pele-sequence");
   });
 
   test("an unclosed fence shows bb's code block even when it would parse", () => {
@@ -153,8 +155,8 @@ describe("isolation", () => {
   test("the frame is sandboxed without scripts, forms, popups or navigation", () => {
     const { frame } = mount(fence(FLOWCHART, "closed"));
     expect(frame()?.getAttribute("sandbox")).toBe("allow-same-origin");
-    expect(frame()?.getAttribute("srcdoc")).toContain("default-src 'none'");
-    expect(frame()?.getAttribute("srcdoc")).not.toContain("script-src");
+    expect(drawn(frame())).toContain("default-src 'none'");
+    expect(drawn(frame())).not.toContain("script-src");
   });
 
   // bb's iOS app cancels subframe navigations to about:srcdoc, which left every diagram blank there.
@@ -168,26 +170,26 @@ describe("isolation", () => {
   test("click directives become no links", () => {
     expect(renderPele(LINKED).svg).toMatch(/<a[\s>]/);
     for (const code of [LINKED, SCRIPTED]) {
-      const srcdoc = mount(fence(code, "closed")).frame()?.getAttribute("srcdoc") ?? "";
-      expect(srcdoc).toContain("pele-flowchart");
-      expect(srcdoc).not.toMatch(/<a[\s>]/);
-      expect(srcdoc).not.toContain("example.com/phish");
-      expect(srcdoc).not.toContain("javascript:");
+      const html = drawn(mount(fence(code, "closed")).frame());
+      expect(html).toContain("pele-flowchart");
+      expect(html).not.toMatch(/<a[\s>]/);
+      expect(html).not.toContain("example.com/phish");
+      expect(html).not.toContain("javascript:");
     }
   });
 
   test("image shapes load no remote image", () => {
     expect(renderPele(IMAGED).svg).toMatch(/<image[\s>]/);
-    const srcdoc = mount(fence(IMAGED, "closed")).frame()?.getAttribute("srcdoc") ?? "";
-    expect(srcdoc).toContain("pele-flowchart");
-    expect(srcdoc).not.toMatch(/<image[\s>]/);
-    expect(srcdoc).not.toContain("example.com/x.png");
+    const html = drawn(mount(fence(IMAGED, "closed")).frame());
+    expect(html).toContain("pele-flowchart");
+    expect(html).not.toMatch(/<image[\s>]/);
+    expect(html).not.toContain("example.com/x.png");
   });
 
   test("markup in labels stays text", () => {
-    const srcdoc = mount(fence(TAGGED, "closed")).frame()?.getAttribute("srcdoc") ?? "";
-    expect(srcdoc).toContain("pele-flowchart");
-    expect(srcdoc).not.toMatch(/<script|<img/i);
+    const html = drawn(mount(fence(TAGGED, "closed")).frame());
+    expect(html).toContain("pele-flowchart");
+    expect(html).not.toMatch(/<script|<img/i);
   });
 });
 
@@ -196,23 +198,25 @@ describe("theme", () => {
     document.documentElement.className = "dark";
     document.documentElement.style.setProperty("--foreground", "rgb(1, 2, 3)");
     document.documentElement.style.setProperty("--font-sans", "Inter, sans-serif");
-    const srcdoc = mount(fence(FLOWCHART, "closed")).frame()?.getAttribute("srcdoc") ?? "";
-    expect(srcdoc).toContain("color-scheme:dark;");
-    expect(srcdoc).toContain("--pele-fg:rgb(1, 2, 3);");
-    expect(srcdoc).toContain("--pele-font:Inter, sans-serif;");
+    const html = drawn(mount(fence(FLOWCHART, "closed")).frame());
+    expect(html).toContain("color-scheme:dark;");
+    expect(html).toContain("--pele-fg:rgb(1, 2, 3);");
+    expect(html).toContain("--pele-font:Inter, sans-serif;");
   });
 
   test("a mode switch recolors the frame without rebuilding it", async () => {
     document.documentElement.style.setProperty("--foreground", "rgb(1, 2, 3)");
     const { frame } = mount(fence(FLOWCHART, "closed"));
-    const before = frame()?.getAttribute("srcdoc");
+    const svg = frame()?.contentDocument?.querySelector("svg");
+    expect(svg).toBeTruthy();
     expect(frame()?.style.colorScheme).toBe("light");
 
     document.documentElement.className = "dark";
     document.documentElement.style.setProperty("--foreground", "rgb(250, 250, 250)");
 
     await vi.waitFor(() => expect(frame()?.style.colorScheme).toBe("dark"));
-    expect(frame()?.getAttribute("srcdoc")).toBe(before);
+    expect(frame()?.contentDocument?.querySelector("svg")).toBe(svg);
+    await vi.waitFor(() => expect(drawn(frame())).toContain("--pele-fg:rgb(250, 250, 250);"));
   });
 });
 
@@ -265,7 +269,7 @@ describe("toolbar", () => {
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-pressed")).toBe("false");
     expect(within(slot.container).queryByTestId("bb-source-code")).toBeNull();
-    expect(frame()?.getAttribute("srcdoc")).toContain("pele-flowchart");
+    expect(drawn(frame())).toContain("pele-flowchart");
   });
 });
 
@@ -332,7 +336,7 @@ describe("several fences", () => {
 
     openViewer(second);
     expect(within(dialog()!).getByRole("heading").textContent).toBe("Mermaid sequence diagram");
-    expect(viewerFrame()?.getAttribute("srcdoc")).toContain("pele-sequence");
+    expect(drawn(viewerFrame())).toContain("pele-sequence");
     expect(zoomLevel()).toBe("100%");
     await act(async () => fireEvent.click(button(dialog()!, "Copy Mermaid source")));
     expect(slot.inspection.experimental_clipboardWrites).toEqual([{ text: SEQUENCE }]);
@@ -401,8 +405,8 @@ describe("viewer", () => {
     const inViewer = viewerFrame()!;
     expect(inViewer.getAttribute("sandbox")).toBe("allow-same-origin");
     expect(inViewer.getAttribute("referrerpolicy")).toBe("no-referrer");
-    expect(inViewer.getAttribute("srcdoc")).toBe(frame()?.getAttribute("srcdoc"));
-    expect(inViewer.getAttribute("srcdoc")).not.toMatch(/<a[\s>]|script-src/);
+    expect(drawn(inViewer)).toBe(drawn(frame()));
+    expect(drawn(inViewer)).not.toMatch(/<a[\s>]|script-src/);
     expect(inViewer.className).toContain("pointer-events-none");
   });
 
