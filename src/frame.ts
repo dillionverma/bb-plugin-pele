@@ -98,6 +98,14 @@ export function frameDocument(input: {
   );
 }
 
+// The frame at the diagram's natural size, padding included.
+export function frameSize(natural: { width: number; height: number }) {
+  return {
+    width: natural.width + 2 * FRAME_PADDING,
+    height: natural.height + 2 * FRAME_PADDING,
+  };
+}
+
 export function frameHeight(
   natural: { width: number; height: number },
   frameWidth: number,

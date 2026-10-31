@@ -1,8 +1,10 @@
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import type { ExperimentalCodeFenceRendererProps } from "@get-bb/plugin-sdk/app";
-import { cleanup, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, within } from "@testing-library/react";
 import { render as renderPele } from "pele";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { frameSize } from "./frame";
+import { fitView } from "./view";
 
 const FLOWCHART = "flowchart LR\n  A[Start] --> B{Ok?}\n  B -->|yes| C[Done]";
 const BROKEN = "flowchart LR\n  A --> ";
@@ -11,7 +13,10 @@ const SCRIPTED = `${FLOWCHART}\n  click A "javascript:alert(1)"`;
 const IMAGED = 'flowchart TD\n  A@{ img: "https://example.com/x.png", label: "Pic", pos: "t", w: 60, h: 60 }\n  A --> B';
 const TAGGED = 'flowchart LR\n  A["<script>alert(1)</script><img src=x onerror=alert(1)>"] --> B';
 
-const resizeObservers: { disconnected: boolean }[] = [];
+const WIDE = `flowchart LR\n  ${Array.from({ length: 24 }, (_, i) => `N${i}[Step number ${i}]`).join(" --> ")}`;
+const VIEWPORT = { width: 800, height: 600 };
+
+const resizeObservers: { disconnected: boolean; target: Element | null; notify(): void }[] = [];
 
 beforeEach(() => {
   resizeObservers.length = 0;
@@ -19,16 +24,26 @@ beforeEach(() => {
   vi.stubGlobal(
     "ResizeObserver",
     class {
-      state = { disconnected: false };
-      constructor() {
+      state: (typeof resizeObservers)[number];
+      constructor(callback: () => void) {
+        this.state = { disconnected: false, target: null, notify: callback };
         resizeObservers.push(this.state);
       }
-      observe() {}
+      observe(target: Element) {
+        this.state.target = target;
+      }
       disconnect() {
         this.state.disconnected = true;
       }
     },
   );
+  const viewportSize = (name: "width" | "height") =>
+    function (this: HTMLElement) {
+      return this.hasAttribute("data-pele-viewport") ? VIEWPORT[name] : 0;
+    };
+  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(viewportSize("width"));
+  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(viewportSize("height"));
+  Element.prototype.setPointerCapture = () => {};
 });
 
 afterEach(() => {
@@ -58,8 +73,8 @@ function fence(code: string, status: ExperimentalCodeFenceRendererProps["status"
   return props;
 }
 
-function mount(props: ExperimentalCodeFenceRendererProps) {
-  const slot = renderSlot(registration, props);
+function mount(props: ExperimentalCodeFenceRendererProps, options?: Parameters<typeof renderSlot>[2]) {
+  const slot = renderSlot(registration, props, options);
   const frame = () => slot.container.querySelector("iframe");
   const original = () => within(slot.container).queryByTestId("original");
   return { slot, frame, original, view: () => slot.container.querySelector("[data-pele-fence]")?.getAttribute("data-pele-view") };
@@ -190,5 +205,289 @@ describe("theme", () => {
 
     await vi.waitFor(() => expect(frame()?.style.colorScheme).toBe("dark"));
     expect(frame()?.getAttribute("srcdoc")).toBe(before);
+  });
+});
+
+const button = (scope: HTMLElement, name: string | RegExp) => within(scope).getByRole("button", { name });
+const dialog = () => screen.queryByRole("dialog");
+const viewport = () => document.querySelector<HTMLElement>("[data-pele-viewport]")!;
+const viewerFrame = () => dialog()?.querySelector("iframe") ?? null;
+const zoomLevel = () => within(dialog()!).getByRole("status", { name: "Zoom level" }).textContent;
+
+function transformOf(frame: HTMLIFrameElement | null) {
+  const match = /translate\((-?[\d.e-]+)px, (-?[\d.e-]+)px\) scale\(([\d.e-]+)\)/.exec(frame?.style.transform ?? "");
+  if (match === null) throw new Error(`no view transform on ${frame?.outerHTML.slice(0, 80)}`);
+  return { x: Number(match[1]), y: Number(match[2]), scale: Number(match[3]) };
+}
+
+function openViewer(container: HTMLElement) {
+  fireEvent.click(button(container, "Open Mermaid diagram"));
+  return dialog()!;
+}
+
+describe("toolbar", () => {
+  test("a rendered diagram gets source, open and copy buttons", () => {
+    const { slot } = mount(fence(FLOWCHART, "closed"));
+    const controls = within(slot.container).getByRole("group", { name: "Diagram controls" });
+    expect(within(controls).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Show Mermaid source",
+      "Open Mermaid diagram",
+      "Copy Mermaid source",
+    ]);
+    expect(button(controls, "Show Mermaid source").getAttribute("aria-pressed")).toBe("false");
+  });
+
+  test("streaming, unclosed and unparsable fences have no Pele controls", () => {
+    for (const props of [fence(FLOWCHART, "streaming"), fence(FLOWCHART, "unclosed"), fence(BROKEN, "closed")]) {
+      const { slot } = mount(props);
+      expect(within(slot.container).queryByRole("group", { name: "Diagram controls" })).toBeNull();
+      slot.lifecycle.unmount();
+    }
+  });
+
+  test("show source swaps the diagram for the exact fence source and back", () => {
+    const { slot, frame } = mount(fence(FLOWCHART, "closed"));
+    const toggle = button(slot.container, "Show Mermaid source");
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    const source = within(slot.container).getByTestId("bb-source-code");
+    expect(source.textContent).toBe(FLOWCHART);
+    expect(source.getAttribute("data-path")).toBe("diagram.mmd");
+    expect(frame()).toBeNull();
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    expect(within(slot.container).queryByTestId("bb-source-code")).toBeNull();
+    expect(frame()?.getAttribute("srcdoc")).toContain("pele-flowchart");
+  });
+});
+
+describe("copy", () => {
+  test("copies the exact fence source and says so", async () => {
+    const { slot } = mount(fence(FLOWCHART, "closed"));
+    await act(async () => fireEvent.click(button(slot.container, "Copy Mermaid source")));
+    expect(slot.inspection.experimental_clipboardWrites).toEqual([{ text: FLOWCHART }]);
+    expect(button(slot.container, "Copied Mermaid source")).toBeTruthy();
+    expect(within(slot.container).getByRole("status").textContent).toBe("Copied Mermaid source");
+  });
+
+  test("a failed copy says it failed, then the button resets", async () => {
+    vi.useFakeTimers();
+    try {
+      const { slot } = mount(fence(FLOWCHART, "closed"), { experimental_copyToClipboard: async () => false });
+      await act(async () => fireEvent.click(button(slot.container, "Copy Mermaid source")));
+      const failed = button(slot.container, "Could not copy Mermaid source");
+      expect(failed.className).toContain("text-destructive");
+      expect(within(slot.container).getByRole("status").textContent).toBe("Could not copy Mermaid source");
+      act(() => vi.advanceTimersByTime(2000));
+      expect(button(slot.container, "Copy Mermaid source")).toBeTruthy();
+      expect(within(slot.container).getByRole("status").textContent).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("several fences", () => {
+  const SEQUENCE = "sequenceDiagram\n  A->>B: hi";
+
+  function mountTwo() {
+    const { slot } = mount(fence(FLOWCHART, "closed", 0));
+    slot.lifecycle.rerender(
+      <>
+        <registration.component {...fence(FLOWCHART, "closed", 0)} />
+        <registration.component {...fence(SEQUENCE, "closed", 1)} />
+      </>,
+    );
+    const [first, second] = [...slot.container.querySelectorAll<HTMLElement>("[data-pele-fence]")];
+    return { slot, first: first!, second: second! };
+  }
+
+  test("copy and source act on their own fence", async () => {
+    const { slot, first, second } = mountTwo();
+    await act(async () => fireEvent.click(button(second, "Copy Mermaid source")));
+    expect(slot.inspection.experimental_clipboardWrites).toEqual([{ text: SEQUENCE }]);
+    expect(button(first, "Copy Mermaid source")).toBeTruthy();
+
+    fireEvent.click(button(first, "Show Mermaid source"));
+    expect(within(first).getByTestId("bb-source-code").textContent).toBe(FLOWCHART);
+    expect(within(second).queryByTestId("bb-source-code")).toBeNull();
+    expect(button(second, "Show Mermaid source").getAttribute("aria-pressed")).toBe("false");
+  });
+
+  test("each viewer shows and copies its own diagram and starts at fit", async () => {
+    const { slot, first, second } = mountTwo();
+    openViewer(first);
+    fireEvent.click(button(dialog()!, "Zoom in"));
+    expect(dialog()!.textContent).toContain("Mermaid flowchart diagram");
+    fireEvent.keyDown(viewport(), { key: "Escape" });
+    expect(dialog()).toBeNull();
+
+    openViewer(second);
+    expect(within(dialog()!).getByRole("heading").textContent).toBe("Mermaid sequence diagram");
+    expect(viewerFrame()?.getAttribute("srcdoc")).toContain("pele-sequence");
+    expect(zoomLevel()).toBe("100%");
+    await act(async () => fireEvent.click(button(dialog()!, "Copy Mermaid source")));
+    expect(slot.inspection.experimental_clipboardWrites).toEqual([{ text: SEQUENCE }]);
+  });
+});
+
+describe("viewer", () => {
+  test("opens a dialog with the diagram fitted and the canvas focused", () => {
+    const { slot } = mount(fence(WIDE, "closed"));
+    const opened = openViewer(slot.container);
+    expect(slot.container.closest('[aria-hidden="true"]')).not.toBeNull();
+    expect(within(opened).getByRole("heading").textContent).toBe("Mermaid flowchart diagram");
+    expect(document.activeElement).toBe(viewport());
+    const content = frameSize(renderPele(WIDE));
+    const fit = fitView(content, VIEWPORT);
+    expect(fit.scale).toBeLessThan(1);
+    const view = transformOf(viewerFrame());
+    expect(view.scale).toBeCloseTo(fit.scale);
+    expect(view.x).toBeCloseTo(fit.x);
+    expect(view.y).toBeCloseTo(fit.y);
+    expect(viewerFrame()?.style.width).toBe(`${content.width}px`);
+    expect(zoomLevel()).toBe(`${Math.round(fit.scale * 100)}%`);
+  });
+
+  test("the viewer frame keeps the inline frame's sandbox and CSP", () => {
+    const { slot, frame } = mount(fence(LINKED, "closed"));
+    openViewer(slot.container);
+    const inViewer = viewerFrame()!;
+    expect(inViewer.getAttribute("sandbox")).toBe("allow-same-origin");
+    expect(inViewer.getAttribute("referrerpolicy")).toBe("no-referrer");
+    expect(inViewer.getAttribute("srcdoc")).toBe(frame()?.getAttribute("srcdoc"));
+    expect(inViewer.getAttribute("srcdoc")).not.toMatch(/<a[\s>]|script-src/);
+    expect(inViewer.className).toContain("pointer-events-none");
+  });
+
+  test("zoom buttons zoom around the center and reset fits again", () => {
+    const { slot } = mount(fence(FLOWCHART, "closed"));
+    openViewer(slot.container);
+    const fit = transformOf(viewerFrame());
+    expect(fit.scale).toBe(1);
+    const center = { x: VIEWPORT.width / 2, y: VIEWPORT.height / 2 };
+    fireEvent.click(button(dialog()!, "Zoom in"));
+    const zoomed = transformOf(viewerFrame());
+    expect(zoomed.scale).toBeCloseTo(1.25);
+    expect(zoomed.x).toBeCloseTo(center.x - (center.x - fit.x) * 1.25);
+    expect(zoomLevel()).toBe("125%");
+    fireEvent.click(button(dialog()!, "Zoom out"));
+    fireEvent.click(button(dialog()!, "Zoom out"));
+    expect(transformOf(viewerFrame()).scale).toBeCloseTo(0.8);
+    fireEvent.click(button(dialog()!, "Reset view"));
+    expect(transformOf(viewerFrame())).toEqual(fit);
+  });
+
+  test("zoom in stops at the limit", () => {
+    const { slot } = mount(fence(FLOWCHART, "closed"));
+    openViewer(slot.container);
+    const zoomIn = button(dialog()!, "Zoom in") as HTMLButtonElement;
+    for (let i = 0; i < 20 && !zoomIn.disabled; i++) fireEvent.click(zoomIn);
+    expect(zoomIn.disabled).toBe(true);
+    expect(zoomLevel()).toBe("800%");
+  });
+
+  test("dragging pans the diagram", () => {
+    const { slot } = mount(fence(FLOWCHART, "closed"));
+    openViewer(slot.container);
+    const start = transformOf(viewerFrame());
+    fireEvent.pointerDown(viewport(), { pointerId: 1, button: 0, clientX: 100, clientY: 100 });
+    expect(viewport().hasAttribute("data-dragging")).toBe(true);
+    fireEvent.pointerMove(viewport(), { pointerId: 1, clientX: 160, clientY: 70 });
+    fireEvent.pointerUp(viewport(), { pointerId: 1, clientX: 160, clientY: 70 });
+    fireEvent.pointerMove(viewport(), { pointerId: 1, clientX: 400, clientY: 400 });
+    expect(transformOf(viewerFrame())).toEqual({ ...start, x: start.x + 60, y: start.y - 30 });
+    expect(viewport().hasAttribute("data-dragging")).toBe(false);
+  });
+
+  test("scrolling pans, pinch or ctrl-scroll zooms, and neither scrolls the page", () => {
+    const { slot } = mount(fence(FLOWCHART, "closed"));
+    openViewer(slot.container);
+    const start = transformOf(viewerFrame());
+    const scroll = new WheelEvent("wheel", { deltaX: 10, deltaY: 40, cancelable: true, bubbles: true });
+    act(() => void viewport().dispatchEvent(scroll));
+    expect(scroll.defaultPrevented).toBe(true);
+    expect(transformOf(viewerFrame())).toEqual({ ...start, x: start.x - 10, y: start.y - 40 });
+
+    const pinch = new WheelEvent("wheel", { deltaY: -20, ctrlKey: true, cancelable: true, bubbles: true });
+    act(() => void viewport().dispatchEvent(pinch));
+    expect(pinch.defaultPrevented).toBe(true);
+    expect(transformOf(viewerFrame()).scale).toBeCloseTo(Math.exp(0.2));
+  });
+
+  test("the keyboard zooms, pans and resets", () => {
+    const { slot } = mount(fence(FLOWCHART, "closed"));
+    openViewer(slot.container);
+    const fit = transformOf(viewerFrame());
+    fireEvent.keyDown(viewport(), { key: "+" });
+    expect(transformOf(viewerFrame()).scale).toBeCloseTo(1.25);
+    fireEvent.keyDown(viewport(), { key: "-" });
+    fireEvent.keyDown(viewport(), { key: "-" });
+    expect(transformOf(viewerFrame()).scale).toBeCloseTo(0.8);
+    fireEvent.keyDown(viewport(), { key: "0" });
+    fireEvent.keyDown(viewport(), { key: "ArrowRight" });
+    expect(transformOf(viewerFrame())).toEqual({ ...fit, x: fit.x - 48 });
+  });
+
+  test("a fitted view follows the viewport until the user moves it", () => {
+    const { slot } = mount(fence(WIDE, "closed"));
+    openViewer(slot.container);
+    const observer = resizeObservers.find((o) => o.target === viewport())!;
+    const before = transformOf(viewerFrame()).scale;
+    VIEWPORT.width = 400;
+    try {
+      act(() => observer.notify());
+      expect(transformOf(viewerFrame()).scale).toBeCloseTo(before / 2, 1);
+      fireEvent.click(button(dialog()!, "Zoom in"));
+      const manual = transformOf(viewerFrame());
+      VIEWPORT.width = 800;
+      act(() => observer.notify());
+      expect(transformOf(viewerFrame())).toEqual(manual);
+    } finally {
+      VIEWPORT.width = 800;
+    }
+  });
+
+  test("Escape and Close return focus to the open button and drop the viewer", async () => {
+    const { slot } = mount(fence(FLOWCHART, "closed"));
+    const open = button(slot.container, "Open Mermaid diagram");
+    open.focus();
+    openViewer(slot.container);
+    const observer = resizeObservers.find((o) => o.target === viewport())!;
+    fireEvent.keyDown(viewport(), { key: "Escape" });
+    expect(dialog()).toBeNull();
+    await vi.waitFor(() => expect(document.activeElement).toBe(open));
+    expect(observer.disconnected).toBe(true);
+
+    openViewer(slot.container);
+    expect(document.activeElement).toBe(viewport());
+    fireEvent.click(button(dialog()!, "Close"));
+    expect(dialog()).toBeNull();
+    await vi.waitFor(() => expect(document.activeElement).toBe(open));
+    expect(document.querySelectorAll("iframe")).toHaveLength(1);
+  });
+
+  test("unmounting the fence closes an open viewer", () => {
+    const { slot } = mount(fence(FLOWCHART, "closed"));
+    openViewer(slot.container);
+    slot.lifecycle.unmount();
+    expect(dialog()).toBeNull();
+    expect(document.querySelectorAll("iframe")).toHaveLength(0);
+  });
+
+  test("the viewer recolors with bb's mode", async () => {
+    const { slot } = mount(fence(FLOWCHART, "closed"));
+    openViewer(slot.container);
+    expect(viewerFrame()?.style.colorScheme).toBe("light");
+    document.documentElement.className = "dark";
+    await vi.waitFor(() => expect(viewerFrame()?.style.colorScheme).toBe("dark"));
+  });
+
+  test("portaled viewer parts carry bb's plugin scope", () => {
+    const { slot } = mount(fence(FLOWCHART, "closed"));
+    const opened = openViewer(slot.container);
+    expect(opened.hasAttribute("data-bb-plugin-root")).toBe(true);
+    expect(opened.hasAttribute("data-bb-portaled-overlay")).toBe(true);
+    expect(opened.getAttribute("data-bb-plugin")).toBeTruthy();
   });
 });

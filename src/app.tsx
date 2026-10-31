@@ -1,17 +1,15 @@
 import {
   definePluginApp,
+  experimental_SourceCode as SourceCode,
   type ExperimentalCodeFenceRendererProps,
 } from "@get-bb/plugin-sdk/app";
 import { render, type RenderResult } from "pele";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import {
-  frameDocument,
-  frameHeight,
-  themeCss,
-  THEME_STYLE_ID,
-  type FrameTheme,
-} from "./frame";
-import { appFontCss, useFrameTheme } from "./theme";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { CopyButton, ToolButton } from "./controls";
+import { DiagramFrame } from "./diagram-frame";
+import { frameHeight, type FrameTheme } from "./frame";
+import { useFrameTheme } from "./theme";
+import { DiagramViewer } from "./viewer";
 
 // Code is model output: never emit links or remote images, whatever it asks for.
 function renderDiagram(code: string, theme: FrameTheme): RenderResult | null {
@@ -27,16 +25,19 @@ function renderDiagram(code: string, theme: FrameTheme): RenderResult | null {
   }
 }
 
-function DiagramFrame({ diagram, theme }: { diagram: RenderResult; theme: FrameTheme }) {
+function DiagramCard({
+  code,
+  diagram,
+  theme,
+}: {
+  code: string;
+  diagram: RenderResult;
+  theme: FrameTheme;
+}) {
   const boxRef = useRef<HTMLDivElement>(null);
-  const frameRef = useRef<HTMLIFrameElement>(null);
   const [width, setWidth] = useState(0);
-  const fontCss = appFontCss(theme.variables["--pele-font"]);
-  const builtWith = useRef(theme);
-  const srcDoc = useMemo(
-    () => frameDocument({ svg: diagram.svg, theme: builtWith.current, fontCss }),
-    [diagram.svg, fontCss],
-  );
+  const [showSource, setShowSource] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   useLayoutEffect(() => {
     const box = boxRef.current;
@@ -47,27 +48,40 @@ function DiagramFrame({ diagram, theme }: { diagram: RenderResult; theme: FrameT
     return () => observer.disconnect();
   }, []);
 
-  const applyTheme = () => {
-    const style = frameRef.current?.contentDocument?.getElementById(THEME_STYLE_ID);
-    if (style) style.textContent = themeCss(theme);
-  };
-  useEffect(applyTheme, [theme]);
-
   return (
-    <div
-      ref={boxRef}
-      className="my-2 overflow-hidden rounded-lg border border-border"
-    >
-      <iframe
-        ref={frameRef}
-        title={`Mermaid ${diagram.type} diagram`}
-        srcDoc={srcDoc}
-        sandbox="allow-same-origin"
-        referrerPolicy="no-referrer"
-        onLoad={applyTheme}
-        className="block w-full border-0"
-        style={{ height: frameHeight(diagram, width), colorScheme: theme.appearance }}
-      />
+    <div className="my-2 overflow-hidden rounded-lg border border-border">
+      <div className="flex items-center justify-between pl-3 pr-1.5 pt-1.5">
+        <span className="font-mono text-xs uppercase text-muted-foreground">mermaid</span>
+        <div role="group" aria-label="Diagram controls" className="flex items-center gap-1">
+          <ToolButton
+            label="Show Mermaid source"
+            icon="Code"
+            aria-pressed={showSource}
+            onClick={() => setShowSource((shown) => !shown)}
+          />
+          <DiagramViewer
+            open={expanded}
+            onOpenChange={setExpanded}
+            trigger={<ToolButton label="Open Mermaid diagram" icon="Maximize2" />}
+            code={code}
+            diagram={diagram}
+            theme={theme}
+          />
+          <CopyButton code={code} />
+        </div>
+      </div>
+      <div ref={boxRef}>
+        {showSource ? (
+          <SourceCode content={code} path="diagram.mmd" overflow="wrap" className="px-3 py-2" />
+        ) : (
+          <DiagramFrame
+            diagram={diagram}
+            theme={theme}
+            className="block w-full border-0"
+            style={{ height: frameHeight(diagram, width) }}
+          />
+        )}
+      </div>
     </div>
   );
 }
@@ -82,7 +96,11 @@ function ClosedFence({ code, index, Original }: Pick<Props, "code" | "index" | "
   const diagram = useMemo(() => renderDiagram(code, theme), [code, font, mono]);
   return (
     <div data-pele-fence={index} data-pele-view={diagram === null ? "error" : "diagram"}>
-      {diagram === null ? <Original /> : <DiagramFrame diagram={diagram} theme={theme} />}
+      {diagram === null ? (
+        <Original />
+      ) : (
+        <DiagramCard code={code} diagram={diagram} theme={theme} />
+      )}
     </div>
   );
 }

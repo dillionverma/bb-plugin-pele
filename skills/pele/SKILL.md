@@ -15,9 +15,10 @@ fonts. While the reply streams, the fence shows its source.
 - If Pele cannot parse a fence, or the reply ends before the fence closes,
   BB shows its own code block instead. BB's renderer can show links and
   load remote images.
-- Diagrams have no pan, zoom, copy or show-source controls. Very wide
-  diagrams shrink to fit the column, so prefer narrower layouts such as
-  `flowchart TD` for long chains.
+- Each diagram has show-source, copy and open buttons. The user can zoom
+  and pan a diagram in the viewer, but very wide diagrams shrink to fit the
+  column in the reply, so prefer narrower layouts such as `flowchart TD` for
+  long chains.
 - Only assistant replies change. User messages and file previews keep
   BB's own Mermaid renderer.
 
