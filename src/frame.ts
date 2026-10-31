@@ -13,11 +13,23 @@ const PELE_VARIABLES = [
   ["--pele-surface", "--surface-recessed-solid"],
   ["--pele-surface-alt", "--muted"],
   ["--pele-border", "--border"],
-  ["--pele-accent", "--timeline-accent"],
+  ["--pele-accent", "--file-accent"],
   ["--pele-radius", "--radius"],
   ["--pele-font", "--font-sans"],
   ["--pele-font-mono", "--font-mono"],
 ] as const;
+
+// Palettes set these against the canvas, so labels drawn in --pele-bg on top stay legible.
+const SERIES_TOKENS = [
+  "--file-accent",
+  "--success",
+  "--pr-merged",
+  "--destructive",
+  "--attention",
+  "--warning",
+  "--timeline-accent",
+] as const;
+const SERIES_COUNT = 8;
 
 export function frameTheme(
   appearance: Appearance,
@@ -27,6 +39,16 @@ export function frameTheme(
   for (const [name, token] of PELE_VARIABLES) {
     const value = readToken(token).trim();
     if (value.length > 0) variables[name] = value;
+  }
+  // Palettes often reuse one color for several tokens, so repeat the distinct
+  // ones as tints rather than giving two series the same color.
+  const hues = [...new Set(SERIES_TOKENS.map((token) => readToken(token).trim()))].filter(
+    (value) => value.length > 0,
+  );
+  for (let i = 0; hues.length > 0 && i < SERIES_COUNT; i++) {
+    const hue = hues[i % hues.length]!;
+    variables[`--pele-series-${i + 1}`] =
+      i < hues.length ? hue : `color-mix(in oklch, ${hue} 55%, var(--pele-bg))`;
   }
   return { appearance, variables };
 }
