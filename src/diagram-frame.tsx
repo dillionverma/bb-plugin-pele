@@ -22,7 +22,9 @@ export function DiagramFrame({
     [diagram.svg, fontCss],
   );
   const latest = useRef({ html, theme });
-  latest.current = { html, theme };
+  useLayoutEffect(() => {
+    latest.current = { html, theme };
+  });
 
   const applyTheme = () => {
     const style = frameRef.current?.contentDocument?.getElementById(THEME_STYLE_ID);

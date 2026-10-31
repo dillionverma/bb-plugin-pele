@@ -167,6 +167,16 @@ describe("isolation", () => {
     expect(frame()?.contentDocument?.querySelector("body > svg.pele-flowchart")).not.toBeNull();
   });
 
+  test("a frame moved in the page draws again", () => {
+    const { slot, frame } = mount(fence(FLOWCHART, "closed"));
+    const moved = frame()!;
+    moved.parentElement!.append(moved);
+    expect(moved.contentDocument?.querySelector("svg")).toBeNull();
+    fireEvent.load(moved);
+    expect(moved.contentDocument?.querySelector("body > svg.pele-flowchart")).not.toBeNull();
+    slot.lifecycle.unmount();
+  });
+
   test("click directives become no links", () => {
     expect(renderPele(LINKED).svg).toMatch(/<a[\s>]/);
     for (const code of [LINKED, SCRIPTED]) {
