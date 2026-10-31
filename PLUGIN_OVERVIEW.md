@@ -10,6 +10,8 @@ Assistant replies draw their ` ```mermaid ` fences with [Pele](https://pele.run)
 
 Ask an agent for a diagram. Any ` ```mermaid ` fence in its reply renders with Pele. There are no settings or commands.
 
+To change diagram colors, change BB's palette in **Settings → Appearance → Palette**, or set your own colors in a BB theme. Chart colors come from the palette's accent colors, such as `--file-accent`, `--success` and `--pr-merged`.
+
 ## Requirements
 
 BB 0.47 or later. Each diagram is SVG in a sandboxed frame. No scripts run in the frame. Diagram links, images and other network loads are blocked. The frame can only load BB's own fonts.
