@@ -534,6 +534,15 @@ describe("viewer", () => {
     await vi.waitFor(() => expect(viewerFrame()?.style.colorScheme).toBe("dark"));
   });
 
+  // bb's iOS app draws the page under the status bar, where the viewer's Close button was hidden.
+  test("the viewer stays inside the screen's safe area", () => {
+    const { slot } = mount(fence(FLOWCHART, "closed"));
+    const opened = openViewer(slot.container);
+    for (const side of ["top", "right", "bottom", "left"]) {
+      expect(opened.className).toContain(`env(safe-area-inset-${side})`);
+    }
+  });
+
   test("portaled viewer parts carry bb's plugin scope", () => {
     const { slot } = mount(fence(FLOWCHART, "closed"));
     const opened = openViewer(slot.container);
