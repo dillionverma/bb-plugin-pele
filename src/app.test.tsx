@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, screen, within } from "@testing-library/react"
 import { render as renderPele } from "pele";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { frameSize } from "./frame";
-import { fitView } from "./view";
+import { fitView, READABLE_SCALE, startView } from "./view";
 
 const FLOWCHART = "flowchart LR\n  A[Start] --> B{Ok?}\n  B -->|yes| C[Done]";
 const BROKEN = "flowchart LR\n  A --> ";
@@ -332,21 +332,59 @@ describe("several fences", () => {
 });
 
 describe("viewer", () => {
-  test("opens a dialog with the diagram fitted and the canvas focused", () => {
-    const { slot } = mount(fence(WIDE, "closed"));
+  test("a diagram that fits readably opens whole, with no fit button", () => {
+    const { slot } = mount(fence(FLOWCHART, "closed"));
     const opened = openViewer(slot.container);
     expect(slot.container.closest('[aria-hidden="true"]')).not.toBeNull();
     expect(within(opened).getByRole("heading").textContent).toBe("Mermaid flowchart diagram");
     expect(document.activeElement).toBe(viewport());
+    const fit = fitView(frameSize(renderPele(FLOWCHART)), VIEWPORT);
+    expect(transformOf(viewerFrame())).toEqual(fit);
+    expect(within(opened).queryByRole("button", { name: "Fit whole diagram" })).toBeNull();
+  });
+
+  test("a very wide diagram opens readable at its left edge, and can be fitted whole", () => {
+    const { slot } = mount(fence(WIDE, "closed"));
+    const opened = openViewer(slot.container);
     const content = frameSize(renderPele(WIDE));
     const fit = fitView(content, VIEWPORT);
-    expect(fit.scale).toBeLessThan(1);
-    const view = transformOf(viewerFrame());
-    expect(view.scale).toBeCloseTo(fit.scale);
-    expect(view.x).toBeCloseTo(fit.x);
-    expect(view.y).toBeCloseTo(fit.y);
+    expect(fit.scale).toBeLessThan(READABLE_SCALE);
+    const start = transformOf(viewerFrame());
+    expect(start).toEqual(startView(content, VIEWPORT));
+    expect(start.scale).toBe(READABLE_SCALE);
+    expect(start.x).toBe(16);
     expect(viewerFrame()?.style.width).toBe(`${content.width}px`);
+    expect(zoomLevel()).toBe("60%");
+
+    fireEvent.click(button(opened, "Fit whole diagram"));
+    const whole = transformOf(viewerFrame());
+    expect(whole.scale).toBeCloseTo(fit.scale);
+    expect(whole.x).toBeCloseTo(fit.x);
     expect(zoomLevel()).toBe(`${Math.round(fit.scale * 100)}%`);
+    fireEvent.click(button(opened, "Reset view"));
+    expect(transformOf(viewerFrame())).toEqual(start);
+  });
+
+  test("two fingers pinch to zoom around their midpoint and pan with it", () => {
+    const { slot } = mount(fence(FLOWCHART, "closed"));
+    openViewer(slot.container);
+    const start = transformOf(viewerFrame());
+    const touch = (type: "pointerDown" | "pointerMove" | "pointerUp", pointerId: number, clientX: number, clientY: number) =>
+      fireEvent[type](viewport(), { pointerId, pointerType: "touch", button: 0, clientX, clientY });
+    touch("pointerDown", 1, 300, 300);
+    touch("pointerDown", 2, 500, 300);
+    touch("pointerMove", 2, 700, 300);
+    const zoomed = transformOf(viewerFrame());
+    expect(zoomed.scale).toBeCloseTo(start.scale * 2);
+    const anchor = { x: 500, y: 300 };
+    const before = { x: (400 - start.x) / start.scale, y: (300 - start.y) / start.scale };
+    expect(zoomed.x + before.x * zoomed.scale).toBeCloseTo(anchor.x);
+    expect(zoomed.y + before.y * zoomed.scale).toBeCloseTo(anchor.y);
+    touch("pointerUp", 2, 700, 300);
+    touch("pointerMove", 1, 320, 310);
+    expect(transformOf(viewerFrame())).toEqual({ ...zoomed, x: zoomed.x + 20, y: zoomed.y + 10 });
+    touch("pointerUp", 1, 320, 310);
+    expect(viewport().hasAttribute("data-dragging")).toBe(false);
   });
 
   test("the viewer frame keeps the inline frame's sandbox and CSP", () => {
@@ -432,6 +470,7 @@ describe("viewer", () => {
   test("a fitted view follows the viewport until the user moves it", () => {
     const { slot } = mount(fence(WIDE, "closed"));
     openViewer(slot.container);
+    fireEvent.click(button(dialog()!, "Fit whole diagram"));
     const observer = resizeObservers.find((o) => o.target === viewport())!;
     const before = transformOf(viewerFrame()).scale;
     VIEWPORT.width = 400;

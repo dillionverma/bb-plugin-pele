@@ -3,27 +3,14 @@ import {
   experimental_SourceCode as SourceCode,
   type ExperimentalCodeFenceRendererProps,
 } from "@get-bb/plugin-sdk/app";
-import { render, type RenderResult } from "pele";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { RenderResult } from "pele";
+import { useLayoutEffect, useRef, useState } from "react";
 import { CopyButton, ToolButton } from "./controls";
 import { DiagramFrame } from "./diagram-frame";
 import { frameHeight, type FrameTheme } from "./frame";
-import { useFrameTheme } from "./theme";
+import { MermaidFile } from "./mermaid-file";
+import { useDiagram } from "./render";
 import { DiagramViewer } from "./viewer";
-
-// Code is model output: never emit links or remote images, whatever it asks for.
-function renderDiagram(code: string, theme: FrameTheme): RenderResult | null {
-  try {
-    return render(code, {
-      links: false,
-      images: false,
-      fontFamily: theme.variables["--pele-font"],
-      fontFamilyMono: theme.variables["--pele-font-mono"],
-    });
-  } catch {
-    return null;
-  }
-}
 
 function DiagramCard({
   code,
@@ -89,11 +76,7 @@ function DiagramCard({
 type Props = ExperimentalCodeFenceRendererProps;
 
 function ClosedFence({ code, index, Original }: Pick<Props, "code" | "index" | "Original">) {
-  const theme = useFrameTheme();
-  const font = theme.variables["--pele-font"];
-  const mono = theme.variables["--pele-font-mono"];
-  // Colors are CSS variables in the frame, so only text and fonts change the layout.
-  const diagram = useMemo(() => renderDiagram(code, theme), [code, font, mono]);
+  const { diagram, theme } = useDiagram(code);
   return (
     <div data-pele-fence={index} data-pele-view={diagram === null ? "error" : "diagram"}>
       {diagram === null ? (
@@ -125,5 +108,11 @@ export default definePluginApp((app) => {
     id: "pele",
     languages: ["mermaid"],
     component: PeleFence,
+  });
+  app.slots.fileOpener({
+    id: "pele-mermaid-file",
+    title: "Pele diagram",
+    extensions: ["mmd", "mermaid"],
+    component: MermaidFile,
   });
 });

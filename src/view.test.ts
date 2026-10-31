@@ -1,5 +1,17 @@
 import { describe, expect, test } from "vitest";
-import { cameraView, FIT, fitView, MAX_SCALE, MIN_SCALE, panBy, zoomAt } from "./view";
+import {
+  cameraView,
+  FIT,
+  fitView,
+  MAX_SCALE,
+  MIN_SCALE,
+  panBy,
+  pinch,
+  READABLE_SCALE,
+  START,
+  startView,
+  zoomAt,
+} from "./view";
 
 const viewport = { width: 800, height: 600 };
 
@@ -55,4 +67,46 @@ test("a fit camera follows the viewport, a manual one does not", () => {
   expect(cameraView(FIT, content, { width: 832, height: 300 }).scale).toBeCloseTo(0.5);
   const manual = { kind: "manual", view: { scale: 3, x: 1, y: 2 } } as const;
   expect(cameraView(manual, content, { width: 832, height: 300 })).toEqual(manual.view);
+});
+
+describe("startView", () => {
+  test("is the fit view when the whole diagram stays readable", () => {
+    const content = { width: 1000, height: 200 };
+    expect(fitView(content, viewport).scale).toBeGreaterThan(READABLE_SCALE);
+    expect(startView(content, viewport)).toEqual(fitView(content, viewport));
+  });
+
+  test("shows a wide diagram's left edge at a readable scale, centered vertically", () => {
+    const view = startView({ width: 4000, height: 200 }, viewport);
+    expect(view).toEqual({ scale: READABLE_SCALE, x: 16, y: (600 - 200 * READABLE_SCALE) / 2 });
+  });
+
+  test("shows a tall diagram's top at a readable scale, centered horizontally", () => {
+    const view = startView({ width: 300, height: 5000 }, viewport);
+    expect(view).toEqual({ scale: READABLE_SCALE, x: (800 - 300 * READABLE_SCALE) / 2, y: 16 });
+  });
+
+  test("the start camera follows the viewport", () => {
+    const content = { width: 4000, height: 200 };
+    expect(cameraView(START, content, viewport)).toEqual(startView(content, viewport));
+  });
+});
+
+describe("pinch", () => {
+  const view = { scale: 1, x: 0, y: 0 };
+
+  test("spreading two fingers zooms around their midpoint", () => {
+    const zoomed = pinch(view, [{ x: 100, y: 100 }, { x: 200, y: 100 }], [{ x: 50, y: 100 }, { x: 250, y: 100 }]);
+    expect(zoomed).toEqual({ scale: 2, x: -150, y: -100 });
+  });
+
+  test("moving both fingers together pans", () => {
+    const moved = pinch(view, [{ x: 0, y: 0 }, { x: 100, y: 0 }], [{ x: 10, y: 20 }, { x: 110, y: 20 }]);
+    expect(moved).toEqual({ scale: 1, x: 10, y: 20 });
+  });
+
+  test("fingers on the same point only pan", () => {
+    const point = { x: 5, y: 5 };
+    expect(pinch(view, [point, point], [{ x: 7, y: 5 }, point])).toEqual({ scale: 1, x: 1, y: 0 });
+  });
 });

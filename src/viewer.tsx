@@ -3,13 +3,11 @@ import * as Dialog from "@radix-ui/react-dialog";
 import type { RenderResult } from "pele";
 import {
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
   type PointerEvent,
   type ReactNode,
-  type RefObject,
 } from "react";
 import { CopyButton, ToolButton } from "./controls";
 import { DiagramFrame } from "./diagram-frame";
@@ -17,9 +15,13 @@ import { frameSize, type FrameTheme } from "./frame";
 import {
   cameraView,
   FIT,
+  fitView,
   MAX_SCALE,
   MIN_SCALE,
   panBy,
+  pinch,
+  READABLE_SCALE,
+  START,
   ZOOM_STEP,
   zoomAt,
   type Camera,
@@ -31,27 +33,25 @@ import {
 const KEY_PAN = 48;
 const LINE_HEIGHT = 16;
 
-function useElementSize(ref: RefObject<HTMLElement | null>): Size {
-  const [size, setSize] = useState<Size>({ width: 0, height: 0 });
-  useLayoutEffect(() => {
-    const element = ref.current;
+export type PanZoom = ReturnType<typeof usePanZoom>;
+
+export function usePanZoom(diagram: RenderResult) {
+  const content = frameSize(diagram);
+  const [element, setElement] = useState<HTMLDivElement | null>(null);
+  const [viewport, setViewport] = useState<Size>({ width: 0, height: 0 });
+  const [camera, setCamera] = useState<Camera>(START);
+  const view = cameraView(camera, content, viewport);
+  const center = { x: viewport.width / 2, y: viewport.height / 2 };
+
+  useEffect(() => {
     if (element === null) return;
     const measure = () =>
-      setSize({ width: element.clientWidth, height: element.clientHeight });
+      setViewport({ width: element.clientWidth, height: element.clientHeight });
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [ref]);
-  return size;
-}
-
-function usePanZoom(content: Size) {
-  const viewportRef = useRef<HTMLDivElement>(null);
-  const viewport = useElementSize(viewportRef);
-  const [camera, setCamera] = useState<Camera>(FIT);
-  const view = cameraView(camera, content, viewport);
-  const center = { x: viewport.width / 2, y: viewport.height / 2 };
+  }, [element]);
 
   const update = (change: (view: View) => View) =>
     setCamera((current) => ({
@@ -61,7 +61,10 @@ function usePanZoom(content: Size) {
   const zoom = (factor: number, anchor: Point = center) =>
     update((view) => zoomAt(view, factor, anchor));
   const pan = (dx: number, dy: number) => update((view) => panBy(view, dx, dy));
-  const reset = () => setCamera(FIT);
+  const local = (clientX: number, clientY: number): Point => {
+    const rect = element?.getBoundingClientRect() ?? { left: 0, top: 0 };
+    return { x: clientX - rect.left, y: clientY - rect.top };
+  };
 
   // React attaches wheel listeners as passive, so they cannot keep the page from scrolling.
   const wheel = useRef<(event: WheelEvent) => void>(() => {});
@@ -71,9 +74,8 @@ function usePanZoom(content: Size) {
     const dx = event.deltaX * unit;
     const dy = event.deltaY * unit;
     if (event.ctrlKey || event.metaKey) {
-      const rect = viewportRef.current?.getBoundingClientRect() ?? { left: 0, top: 0 };
       const step = Math.max(-50, Math.min(50, dy));
-      zoom(Math.exp(-step / 100), { x: event.clientX - rect.left, y: event.clientY - rect.top });
+      zoom(Math.exp(-step / 100), local(event.clientX, event.clientY));
     } else if (event.shiftKey && dx === 0) {
       pan(-dy, 0);
     } else {
@@ -81,37 +83,41 @@ function usePanZoom(content: Size) {
     }
   };
   useEffect(() => {
-    const element = viewportRef.current;
     if (element === null) return;
     const listener = (event: WheelEvent) => wheel.current(event);
     element.addEventListener("wheel", listener, { passive: false });
     return () => element.removeEventListener("wheel", listener);
-  }, []);
+  }, [element]);
 
-  const drag = useRef<{ pointerId: number; last: Point } | null>(null);
+  // One pointer drags; two pointers (fingers) pinch.
+  const pointers = useRef(new Map<number, Point>());
   const [dragging, setDragging] = useState(false);
-  function endDrag(event: PointerEvent<HTMLDivElement>) {
-    if (drag.current?.pointerId !== event.pointerId) return;
-    drag.current = null;
-    setDragging(false);
-  }
+  const endPointer = (event: PointerEvent<HTMLDivElement>) => {
+    if (!pointers.current.delete(event.pointerId)) return;
+    setDragging(pointers.current.size > 0);
+  };
   const pointerHandlers = {
     onPointerDown(event: PointerEvent<HTMLDivElement>) {
       if (event.button !== 0) return;
       event.currentTarget.setPointerCapture(event.pointerId);
-      drag.current = { pointerId: event.pointerId, last: { x: event.clientX, y: event.clientY } };
+      pointers.current.set(event.pointerId, local(event.clientX, event.clientY));
       setDragging(true);
     },
     onPointerMove(event: PointerEvent<HTMLDivElement>) {
-      const current = drag.current;
-      if (current === null || current.pointerId !== event.pointerId) return;
-      pan(event.clientX - current.last.x, event.clientY - current.last.y);
-      current.last = { x: event.clientX, y: event.clientY };
+      const last = pointers.current.get(event.pointerId);
+      if (last === undefined) return;
+      const next = local(event.clientX, event.clientY);
+      const other = [...pointers.current].find(([id]) => id !== event.pointerId)?.[1];
+      pointers.current.set(event.pointerId, next);
+      if (other === undefined) pan(next.x - last.x, next.y - last.y);
+      else update((view) => pinch(view, [last, other], [next, other]));
     },
-    onPointerUp: endDrag,
-    onPointerCancel: endDrag,
+    onPointerUp: endPointer,
+    onPointerCancel: endPointer,
   };
 
+  const reset = () => setCamera(START);
+  const fitAll = () => setCamera(FIT);
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     const action: Record<string, () => void> = {
@@ -131,16 +137,88 @@ function usePanZoom(content: Size) {
   };
 
   return {
-    viewportRef,
+    canvasRef: setElement,
+    content,
     view,
     dragging,
     pointerHandlers,
     onKeyDown,
+    // The start view crops a diagram only when fitting it whole would be unreadable.
+    canFitAll: fitView(content, viewport).scale < READABLE_SCALE,
     zoomIn: () => zoom(ZOOM_STEP),
     zoomOut: () => zoom(1 / ZOOM_STEP),
     reset,
+    fitAll,
   };
 }
+
+export function ZoomControls({ panZoom }: { panZoom: PanZoom }) {
+  const { view, zoomIn, zoomOut, reset, fitAll, canFitAll } = panZoom;
+  return (
+    <>
+      <output
+        aria-label="Zoom level"
+        className="w-12 text-right font-mono text-xs tabular-nums text-muted-foreground"
+      >
+        {Math.round(view.scale * 100)}%
+      </output>
+      <ToolButton label="Zoom out" icon="ZoomOut" onClick={zoomOut} disabled={view.scale <= MIN_SCALE} />
+      <ToolButton label="Zoom in" icon="ZoomIn" onClick={zoomIn} disabled={view.scale >= MAX_SCALE} />
+      {canFitAll ? <ToolButton label="Fit whole diagram" icon="Minimize2" onClick={fitAll} /> : null}
+      <ToolButton label="Reset view" icon="RotateCcw" onClick={reset} />
+    </>
+  );
+}
+
+export function PanZoomCanvas({
+  panZoom,
+  diagram,
+  theme,
+}: {
+  panZoom: PanZoom;
+  diagram: RenderResult;
+  theme: FrameTheme;
+}) {
+  const { canvasRef, content, view, dragging, pointerHandlers } = panZoom;
+  return (
+    <div
+      ref={canvasRef}
+      data-pele-viewport=""
+      data-dragging={dragging ? "" : undefined}
+      tabIndex={0}
+      role="application"
+      aria-roledescription="diagram viewer"
+      aria-label="Diagram. Drag or scroll to pan. Pinch, Ctrl and scroll, or plus and minus to zoom. 0 resets the view."
+      className="relative min-h-0 flex-1 cursor-grab touch-none overflow-hidden select-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring data-[dragging]:cursor-grabbing"
+      {...pointerHandlers}
+    >
+      <DiagramFrame
+        diagram={diagram}
+        theme={theme}
+        className="pointer-events-none absolute left-0 top-0 block border-0"
+        style={{
+          width: content.width,
+          height: content.height,
+          transformOrigin: "0 0",
+          transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
+        }}
+      />
+    </div>
+  );
+}
+
+export function ViewerHeader({ title, children }: { title: ReactNode; children: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-2 border-b border-border py-1.5 pl-3 pr-1.5">
+      {title}
+      <div role="group" aria-label="Viewer controls" className="flex shrink-0 items-center gap-1">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+export const VIEWER_TITLE_CLASS = "min-w-0 truncate font-mono text-xs uppercase text-muted-foreground";
 
 function ViewerBody({
   code,
@@ -151,64 +229,19 @@ function ViewerBody({
   diagram: RenderResult;
   theme: FrameTheme;
 }) {
-  const content = frameSize(diagram);
-  const { viewportRef, view, dragging, pointerHandlers, onKeyDown, zoomIn, zoomOut, reset } =
-    usePanZoom(content);
+  const panZoom = usePanZoom(diagram);
   return (
-    <div className="flex min-h-0 flex-1 flex-col" onKeyDown={onKeyDown}>
-      <div className="flex items-center justify-between gap-2 border-b border-border py-1.5 pl-3 pr-1.5">
-        <Dialog.Title className="truncate font-mono text-xs uppercase text-muted-foreground">
-          Mermaid {diagram.type} diagram
-        </Dialog.Title>
-        <div role="group" aria-label="Viewer controls" className="flex items-center gap-1">
-          <output
-            aria-label="Zoom level"
-            className="w-12 text-right font-mono text-xs tabular-nums text-muted-foreground"
-          >
-            {Math.round(view.scale * 100)}%
-          </output>
-          <ToolButton
-            label="Zoom out"
-            icon="ZoomOut"
-            onClick={zoomOut}
-            disabled={view.scale <= MIN_SCALE}
-          />
-          <ToolButton
-            label="Zoom in"
-            icon="ZoomIn"
-            onClick={zoomIn}
-            disabled={view.scale >= MAX_SCALE}
-          />
-          <ToolButton label="Reset view" icon="RotateCcw" onClick={reset} />
-          <CopyButton code={code} />
-          <Dialog.Close asChild>
-            <ToolButton label="Close" icon="X" />
-          </Dialog.Close>
-        </div>
-      </div>
-      <div
-        ref={viewportRef}
-        data-pele-viewport=""
-        data-dragging={dragging ? "" : undefined}
-        tabIndex={0}
-        role="application"
-        aria-roledescription="diagram viewer"
-        aria-label="Diagram. Drag or scroll to pan. Pinch, Ctrl and scroll, or plus and minus to zoom. 0 resets the view."
-        className="relative min-h-0 flex-1 cursor-grab touch-none overflow-hidden select-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring data-[dragging]:cursor-grabbing"
-        {...pointerHandlers}
+    <div className="flex min-h-0 flex-1 flex-col" onKeyDown={panZoom.onKeyDown}>
+      <ViewerHeader
+        title={<Dialog.Title className={VIEWER_TITLE_CLASS}>Mermaid {diagram.type} diagram</Dialog.Title>}
       >
-        <DiagramFrame
-          diagram={diagram}
-          theme={theme}
-          className="pointer-events-none absolute left-0 top-0 block border-0"
-          style={{
-            width: content.width,
-            height: content.height,
-            transformOrigin: "0 0",
-            transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
-          }}
-        />
-      </div>
+        <ZoomControls panZoom={panZoom} />
+        <CopyButton code={code} />
+        <Dialog.Close asChild>
+          <ToolButton label="Close" icon="X" />
+        </Dialog.Close>
+      </ViewerHeader>
+      <PanZoomCanvas panZoom={panZoom} diagram={diagram} theme={theme} />
     </div>
   );
 }

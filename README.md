@@ -21,13 +21,14 @@
   <img src="assets/readme/flowchart-dark.png" alt="The same flowchart in BB's dark palette." width="49%" />
 </p>
 
-Pele renders the ` ```mermaid ` fences in assistant replies with [Pele](https://pele.run), a fast Mermaid renderer by kepano. Diagrams use BB's colors and fonts and follow light and dark mode.
+Pele renders the ` ```mermaid ` fences in assistant replies, and `.mmd` and `.mermaid` files, with [Pele](https://pele.run), a fast Mermaid renderer by kepano. Diagrams use BB's colors and fonts and follow light and dark mode.
 
 ## Highlights
 
 - 🧭 **Every Mermaid diagram type.** Pele supports all diagram types in Mermaid 12.1, including gitGraph, sankey and mindmap.
 - 🎨 **BB's look.** Diagrams take BB's palette, font and corner radius, and recolor when you change the mode or palette.
-- 🔍 **Source, copy and zoom.** Each diagram has buttons to show its source, copy the source, and open a large viewer. In the viewer, drag or scroll to pan, and pinch, Ctrl-scroll or the zoom buttons to zoom. Escape closes it.
+- 🔍 **Source, copy and zoom.** Each diagram has buttons to show its source, copy the source, and open a large viewer. In the viewer, drag or scroll to pan, and pinch, Ctrl-scroll or the zoom buttons to zoom. A very wide or tall diagram opens at a readable size; **Fit whole diagram** shows all of it. Escape closes the viewer.
+- 📄 **Mermaid files.** Open a `.mmd` or `.mermaid` file in BB to see it as a diagram you can pan and zoom. The view updates when the file changes.
 - ✍️ **Source while streaming.** A fence shows its source while the reply streams and becomes a diagram when the fence closes.
 - 🛡️ **Sandboxed output.** Each diagram is SVG in a sandboxed frame. No scripts run in the frame. Diagram links, images and other network loads are blocked. The frame can only load BB's own fonts.
 - ↩️ **BB's block as the fallback.** If a fence does not parse, or a reply ends before a fence closes, BB shows its own code block.
@@ -61,13 +62,6 @@ bb plugin install https://github.com/dillionverma/bb-plugin-pele
 To go back to BB's own Mermaid renderer, run `bb plugin disable pele` and reload BB.
 
 Requires BB 0.47 or later.
-
-## Limitations
-
-- Only assistant replies change. User messages and file previews keep BB's own Mermaid renderer.
-- Link and image blocking applies only to diagrams Pele draws. Fallback fences, user messages and file previews use BB's renderer, which can show links and load remote images.
-- Inside a Pele diagram, `click` links and image shapes draw as plain shapes.
-- Very wide diagrams shrink to fit the column. Open the viewer to read them at full size.
 
 ## Development
 
