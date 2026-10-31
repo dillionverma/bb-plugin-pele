@@ -238,13 +238,21 @@ function ViewerBody({
         <ZoomControls panZoom={panZoom} />
         <CopyButton code={code} />
         <Dialog.Close asChild>
-          <ToolButton label="Close" icon="X" />
+          <ToolButton label="Close" icon="X" className="pointer-coarse:size-10" />
         </Dialog.Close>
       </ViewerHeader>
       <PanZoomCanvas panZoom={panZoom} diagram={diagram} theme={theme} />
     </div>
   );
 }
+
+// bb's iOS app draws the page under the status bar and home indicator.
+const SAFE_INSETS = [
+  "top-[max(0.5rem,env(safe-area-inset-top))] sm:top-[max(1.5rem,env(safe-area-inset-top))]",
+  "right-[max(0.5rem,env(safe-area-inset-right))] sm:right-[max(1.5rem,env(safe-area-inset-right))]",
+  "bottom-[max(0.5rem,env(safe-area-inset-bottom))] sm:bottom-[max(1.5rem,env(safe-area-inset-bottom))]",
+  "left-[max(0.5rem,env(safe-area-inset-left))] sm:left-[max(1.5rem,env(safe-area-inset-left))]",
+].join(" ");
 
 // bb scopes plugin styles to these attributes, so portaled overlays carry them too.
 function usePortalScope() {
@@ -285,7 +293,7 @@ export function DiagramViewer({
             event.preventDefault();
             contentRef.current?.querySelector<HTMLElement>("[data-pele-viewport]")?.focus();
           }}
-          className="fixed inset-2 z-50 flex flex-col overflow-hidden rounded-lg border border-border bg-background shadow-sm focus:outline-none sm:inset-6"
+          className={`fixed z-50 flex flex-col overflow-hidden rounded-lg border border-border bg-background shadow-sm focus:outline-none ${SAFE_INSETS}`}
         >
           <ViewerBody code={code} diagram={diagram} theme={theme} />
         </Dialog.Content>
