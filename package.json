@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-pele",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Render Mermaid diagrams in assistant replies with Pele, in BB's colors and fonts.",
   "type": "module",
   "license": "MIT",
