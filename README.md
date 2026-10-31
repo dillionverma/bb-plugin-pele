@@ -27,7 +27,7 @@ Pele renders the ` ```mermaid ` fences in assistant replies with [Pele](https://
 - 🧭 **Every Mermaid diagram type.** Pele supports all diagram types in Mermaid 12.1, including gitGraph, sankey and mindmap.
 - 🎨 **BB's look.** Diagrams take BB's palette, font and corner radius, and recolor when you change the mode or palette.
 - ✍️ **Source while streaming.** A fence shows its source while the reply streams and becomes a diagram when the fence closes.
-- 🛡️ **Sandboxed output.** Each diagram is SVG in a sandboxed frame with no scripts and no network access. `click` links and image shapes do not render.
+- 🛡️ **Sandboxed output.** Each diagram is SVG in a sandboxed frame. No scripts run in the frame. Diagram links, images and other network loads are blocked. The frame can only load BB's own fonts.
 - ↩️ **BB's block as the fallback.** If a fence does not parse, or a reply ends before a fence closes, BB shows its own code block.
 
 ## Screenshots
@@ -43,9 +43,16 @@ Pele renders the ` ```mermaid ` fences in assistant replies with [Pele](https://
 bb plugin install https://github.com/dillionverma/bb-plugin-pele
 ```
 
-Only assistant replies change. User messages and file previews keep BB's own Mermaid renderer. To go back to it everywhere, run `bb plugin disable pele` and reload BB.
+To go back to BB's own Mermaid renderer, run `bb plugin disable pele` and reload BB.
 
 Requires BB 0.47 or later.
+
+## Limitations
+
+- Only assistant replies change. User messages and file previews keep BB's own Mermaid renderer.
+- Pele draws `click` links and image shapes as plain shapes. Fences that fall back to BB's block, and fences in user messages and file previews, use BB's renderer, which can show links and load remote images.
+- Pele diagrams do not have BB's show-source, copy and zoom controls. Version 0.1 has no pan or zoom.
+- Very wide diagrams shrink to fit the column, so their text can become very small.
 
 ## Development
 

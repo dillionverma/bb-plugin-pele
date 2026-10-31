@@ -10,9 +10,14 @@ fence closes, BB draws it with [Pele](https://pele.run) in BB's colors and
 fonts. While the reply streams, the fence shows its source.
 
 - Pele supports every diagram type in Mermaid 12.1, with its own layout.
-- `click` links and image shapes do not render. Put links in normal text.
+- In diagrams Pele draws, `click` links and image shapes render as plain
+  shapes. Put links in normal text.
 - If Pele cannot parse a fence, or the reply ends before the fence closes,
-  BB shows its own code block instead.
+  BB shows its own code block instead. BB's renderer can show links and
+  load remote images.
+- Diagrams have no pan, zoom, copy or show-source controls. Very wide
+  diagrams shrink to fit the column, so prefer narrower layouts such as
+  `flowchart TD` for long chains.
 - Only assistant replies change. User messages and file previews keep
   BB's own Mermaid renderer.
 

@@ -12,7 +12,14 @@ Ask an agent for a diagram. Any ` ```mermaid ` fence in its reply renders with P
 
 ## Requirements
 
-BB 0.47 or later. Only assistant replies change. User messages and file previews keep BB's renderer. Diagrams render as SVG with no scripts and no network access, so `click` links and image shapes do not render.
+BB 0.47 or later. Each diagram is SVG in a sandboxed frame. No scripts run in the frame. Diagram links, images and other network loads are blocked. The frame can only load BB's own fonts.
+
+## Limitations
+
+- Only assistant replies change. User messages and file previews keep BB's renderer.
+- Pele draws `click` links and image shapes as plain shapes. Fences that fall back to BB's block, and fences in user messages and file previews, use BB's renderer, which can show links and load remote images.
+- Pele diagrams do not have BB's show-source, copy and zoom controls. Version 0.1 has no pan or zoom.
+- Very wide diagrams shrink to fit the column, so their text can become very small.
 
 ## Credits
 
