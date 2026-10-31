@@ -1,0 +1,65 @@
+{
+  "name": "bb-plugin-pele",
+  "version": "0.1.0",
+  "description": "Render Mermaid diagrams in assistant replies with Pele, in BB's colors and fonts.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dillionverma/bb-plugin-pele.git"
+  },
+  "homepage": "https://github.com/dillionverma/bb-plugin-pele#readme",
+  "bugs": {
+    "url": "https://github.com/dillionverma/bb-plugin-pele/issues"
+  },
+  "engines": {
+    "bb": ">=0.47",
+    "bbPluginSdk": ">=0.6.79"
+  },
+  "scripts": {
+    "build": "bb plugin build",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "bb": {
+    "name": "Pele",
+    "description": "Render Mermaid diagrams in assistant replies with Pele, in BB's colors and fonts.",
+    "branding": {
+      "icon": "./assets/icon.svg"
+    },
+    "server": "./src/server.ts",
+    "app": "./src/app.tsx",
+    "skills": [
+      "skills"
+    ]
+  },
+  "files": [
+    "assets/icon.svg",
+    "src",
+    "skills",
+    "tsconfig.json",
+    "dist",
+    "README.md",
+    "PLUGIN_OVERVIEW.md",
+    "LICENSE",
+    "!**/*.test.ts",
+    "!**/*.test.tsx"
+  ],
+  "dependencies": {
+    "pele": "1.12.0"
+  },
+  "devDependencies": {
+    "@get-bb/plugin-sdk": "0.6.79",
+    "@testing-library/react": "^16.3.3",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "hono": "^4.11.9",
+    "jsdom": "^30.1.3",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}
