@@ -157,6 +157,14 @@ describe("isolation", () => {
     expect(frame()?.getAttribute("srcdoc")).not.toContain("script-src");
   });
 
+  // bb's iOS app cancels subframe navigations to about:srcdoc, which left every diagram blank there.
+  test("the frame draws without navigating anywhere", () => {
+    const { frame } = mount(fence(FLOWCHART, "closed"));
+    expect(frame()?.hasAttribute("srcdoc")).toBe(false);
+    expect(frame()?.hasAttribute("src")).toBe(false);
+    expect(frame()?.contentDocument?.querySelector("body > svg.pele-flowchart")).not.toBeNull();
+  });
+
   test("click directives become no links", () => {
     expect(renderPele(LINKED).svg).toMatch(/<a[\s>]/);
     for (const code of [LINKED, SCRIPTED]) {
